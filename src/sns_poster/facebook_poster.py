@@ -151,7 +151,7 @@ class FacebookPoster(BasePoster):
             # 바로 페이스북 홈으로 이동 (세션 저장되어 있으므로 자동 로그인)
             logger.info("[facebook] Navigating to Facebook...")
             await self.page.goto("https://www.facebook.com/", wait_until='domcontentloaded')
-            await self.random_delay(3, 5)
+            await self.random_delay(4, 6)
             
             # "무슨 생각을 하고 계신가요?" 버튼 클릭하여 글쓰기 창 열기
             logger.info("[facebook] Opening post composer...")
@@ -183,7 +183,7 @@ class FacebookPoster(BasePoster):
                 await self.take_screenshot("composer_not_found")
                 return False
             
-            await self.random_delay(2, 3)
+            await self.random_delay(3, 5)
             
             # ===== 순서 변경: 이미지 먼저, 텍스트 나중에 =====
             
@@ -232,7 +232,7 @@ class FacebookPoster(BasePoster):
                         logger.info("[facebook] Images uploaded")
                 
                 # 이미지 처리 대기
-                await self.random_delay(3, 5)
+                await self.random_delay(5, 8)
             
             # 2. 텍스트 입력 (이미지 업로드 후 포커스가 텍스트 영역에 있음 - 바로 타이핑)
             logger.info("[facebook] Entering post text...")
@@ -278,7 +278,7 @@ class FacebookPoster(BasePoster):
                 await self.take_screenshot("next_button_not_found")
                 return False
             
-            await self.random_delay(2, 3)
+            await self.random_delay(3, 5)
             
             # 게시 버튼 클릭
             logger.info("[facebook] Clicking post button...")

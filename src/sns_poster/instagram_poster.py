@@ -189,7 +189,7 @@ class InstagramPoster(BasePoster):
             
             # 홈으로 이동
             await self.page.goto(self.HOME_URL, wait_until='domcontentloaded')
-            await self.random_delay(3, 5)
+            await self.random_delay(4, 6)
             
             # "새 게시물" 버튼 클릭
             logger.info("[instagram] Opening post composer...")
@@ -238,7 +238,7 @@ class InstagramPoster(BasePoster):
                 await self.take_screenshot("composer_not_found")
                 return False
             
-            await self.random_delay(2, 3)
+            await self.random_delay(3, 5)
             
             # 이미지 업로드
             logger.info(f"[instagram] Uploading {len(image_paths)} image(s)...")
@@ -263,7 +263,7 @@ class InstagramPoster(BasePoster):
                 await self.take_screenshot("upload_failed")
                 return False
             
-            await self.random_delay(3, 5)
+            await self.random_delay(5, 8)
             
             # "다음" 버튼 클릭 (자르기 화면)
             logger.info("[instagram] Clicking next (crop screen)...")
@@ -271,7 +271,7 @@ class InstagramPoster(BasePoster):
             if not next_clicked:
                 return False
             
-            await self.random_delay(2, 3)
+            await self.random_delay(3, 5)
             
             # "다음" 버튼 클릭 (필터 화면)
             logger.info("[instagram] Clicking next (filter screen)...")
@@ -279,7 +279,7 @@ class InstagramPoster(BasePoster):
             if not next_clicked:
                 return False
             
-            await self.random_delay(2, 3)
+            await self.random_delay(3, 5)
             
             # 캡션 입력
             logger.info("[instagram] Entering caption...")
@@ -376,7 +376,14 @@ class InstagramPoster(BasePoster):
             'div[role="button"]:has-text("Next")',
             'button:has-text("다음")',
             'button:has-text("Next")',
+            '[aria-label="다음"]',
+            '[aria-label="Next"]',
+            'span:has-text("다음")',
+            'span:has-text("Next")',
         ]
+        
+        # 먼저 잠시 대기 (이미지 로딩)
+        await self.random_delay(1, 2)
         
         for selector in next_btn_selectors:
             try:

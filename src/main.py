@@ -70,8 +70,17 @@ class SNSAvatarApp:
         Args:
             file_paths: 처리할 파일 경로 리스트
         """
-        # 배치 ID 생성 (파일 경로 기반)
-        batch_id = "|".join(sorted(file_paths))
+        import os
+        
+        # 배치 ID 생성 (파일 경로 + 수정시간 기반)
+        # 같은 파일이라도 새로 생성되면 다른 batch_id
+        try:
+            mtimes = [os.path.getmtime(f) for f in file_paths]
+            max_mtime = max(mtimes) if mtimes else 0
+        except:
+            max_mtime = 0
+        
+        batch_id = f"{len(file_paths)}_{int(max_mtime)}"
         
         logger.info(f"[CALLBACK] on_batch_ready called with {len(file_paths)} file(s)")
         
@@ -81,6 +90,9 @@ class SNSAvatarApp:
                 logger.warning(f"[CALLBACK] Duplicate batch SKIPPED!")
                 return
             self.sent_batches.add(batch_id)
+            # 오래된 배치 ID 정리 (최근 10개만 유지)
+            if len(self.sent_batches) > 10:
+                self.sent_batches = set(list(self.sent_batches)[-10:])
             logger.info(f"[CALLBACK] New batch registered, will send notification")
         
         # 메인 이벤트 루프에 작업 스케줄링

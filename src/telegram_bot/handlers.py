@@ -195,6 +195,26 @@ class TelegramHandlers:
                     "(예: 더 캐주얼하게, 해시태그 줄여줘, 이모지 더 넣어줘 등)"
                 )
                 logger.info(f"Waiting for feedback [batch_id: {batch_id}]")
+            
+            elif action == "facebook_only":
+                # 페이스북만 게시
+                batch_state['state'] = 'posting'
+                await query.edit_message_text(
+                    "📘 페이스북에만 게시합니다...\n\n"
+                    "잠시만 기다려주세요 ⏳"
+                )
+                logger.info(f"Posting to Facebook only [batch_id: {batch_id}]")
+                await self._post_to_sns(batch_id, context.bot, platforms=['facebook'])
+            
+            elif action == "instagram_only":
+                # 인스타그램만 게시
+                batch_state['state'] = 'posting'
+                await query.edit_message_text(
+                    "📱 인스타그램에만 게시합니다...\n\n"
+                    "잠시만 기다려주세요 ⏳"
+                )
+                logger.info(f"Posting to Instagram only [batch_id: {batch_id}]")
+                await self._post_to_sns(batch_id, context.bot, platforms=['instagram'])
                 
         except Exception as e:
             logger.error(f"Error handling button callback: {e}", exc_info=True)
@@ -385,10 +405,14 @@ class TelegramHandlers:
                 parse_mode='Markdown'
             )
             
-            # 승인/피드백 버튼
+            # 승인/피드백/개별 게시 버튼
             keyboard = [
-                [InlineKeyboardButton("✅ 승인", callback_data=f"{batch_id}:approve")],
-                [InlineKeyboardButton("✏️ 피드백 제공", callback_data=f"{batch_id}:feedback")]
+                [InlineKeyboardButton("✅ 전체 승인 (FB+IG)", callback_data=f"{batch_id}:approve")],
+                [InlineKeyboardButton("✏️ 피드백 제공", callback_data=f"{batch_id}:feedback")],
+                [
+                    InlineKeyboardButton("📘 페이스북만", callback_data=f"{batch_id}:facebook_only"),
+                    InlineKeyboardButton("📱 인스타만", callback_data=f"{batch_id}:instagram_only")
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -447,13 +471,14 @@ class TelegramHandlers:
                 text=f"❌ AI 글 재생성 중 오류가 발생했습니다.\n\n{str(e)}"
             )
     
-    async def _post_to_sns(self, batch_id: str, bot):
+    async def _post_to_sns(self, batch_id: str, bot, platforms: List[str] = None):
         """
-        SNS에 게시 (페이스북 + 인스타그램)
+        SNS에 게시
         
         Args:
             batch_id: 배치 ID
             bot: 텔레그램 봇 인스턴스
+            platforms: 게시할 플랫폼 리스트 (None이면 전체)
         """
         try:
             batch_state = self.batch_states.get(batch_id)
@@ -464,71 +489,85 @@ class TelegramHandlers:
             file_paths = batch_state['files']
             folder_path = config.WATCH_FOLDER
             
+            # 플랫폼 설정 (기본: 전체)
+            if platforms is None:
+                platforms = ['facebook', 'instagram']
+            
             # PostManager 가져오기
             from sns_poster import PostManager
             post_manager = PostManager()
             
-            results = {'facebook': False, 'instagram': False}
+            results = {'facebook': None, 'instagram': None}
+            success_count = 0
             
             # 페이스북 게시
-            await bot.send_message(
-                chat_id=self.chat_id,
-                text="📘 페이스북에 게시 중..."
-            )
-            
-            try:
-                results['facebook'] = await post_manager.post_to_facebook(folder_path, file_paths)
-                if results['facebook']:
-                    await bot.send_message(
-                        chat_id=self.chat_id,
-                        text="✅ 페이스북 게시 완료!"
-                    )
-                else:
-                    await bot.send_message(
-                        chat_id=self.chat_id,
-                        text="⚠️ 페이스북 게시 스킵 (이미 게시됨 또는 실패)"
-                    )
-            except Exception as e:
-                logger.error(f"Facebook posting failed: {e}")
+            if 'facebook' in platforms:
                 await bot.send_message(
                     chat_id=self.chat_id,
-                    text=f"❌ 페이스북 게시 실패: {str(e)}"
+                    text="📘 페이스북에 게시 중..."
                 )
+                
+                try:
+                    results['facebook'] = await post_manager.post_to_facebook(folder_path, file_paths)
+                    if results['facebook']:
+                        await bot.send_message(
+                            chat_id=self.chat_id,
+                            text="✅ 페이스북 게시 완료!"
+                        )
+                        success_count += 1
+                    else:
+                        await bot.send_message(
+                            chat_id=self.chat_id,
+                            text="⚠️ 페이스북 게시 스킵 (이미 게시됨 또는 실패)"
+                        )
+                except Exception as e:
+                    logger.error(f"Facebook posting failed: {e}")
+                    await bot.send_message(
+                        chat_id=self.chat_id,
+                        text=f"❌ 페이스북 게시 실패: {str(e)}"
+                    )
+                    results['facebook'] = False
             
             # 인스타그램 게시
-            await bot.send_message(
-                chat_id=self.chat_id,
-                text="📱 인스타그램에 게시 중..."
-            )
-            
-            try:
-                results['instagram'] = await post_manager.post_to_instagram(folder_path, file_paths)
-                if results['instagram']:
-                    await bot.send_message(
-                        chat_id=self.chat_id,
-                        text="✅ 인스타그램 게시 완료!"
-                    )
-                else:
-                    await bot.send_message(
-                        chat_id=self.chat_id,
-                        text="⚠️ 인스타그램 게시 스킵 (이미 게시됨 또는 실패)"
-                    )
-            except Exception as e:
-                logger.error(f"Instagram posting failed: {e}")
+            if 'instagram' in platforms:
                 await bot.send_message(
                     chat_id=self.chat_id,
-                    text=f"❌ 인스타그램 게시 실패: {str(e)}"
+                    text="📱 인스타그램에 게시 중..."
                 )
+                
+                try:
+                    results['instagram'] = await post_manager.post_to_instagram(folder_path, file_paths)
+                    if results['instagram']:
+                        await bot.send_message(
+                            chat_id=self.chat_id,
+                            text="✅ 인스타그램 게시 완료!"
+                        )
+                        success_count += 1
+                    else:
+                        await bot.send_message(
+                            chat_id=self.chat_id,
+                            text="⚠️ 인스타그램 게시 스킵 (이미 게시됨 또는 실패)"
+                        )
+                except Exception as e:
+                    logger.error(f"Instagram posting failed: {e}")
+                    await bot.send_message(
+                        chat_id=self.chat_id,
+                        text=f"❌ 인스타그램 게시 실패: {str(e)}"
+                    )
+                    results['instagram'] = False
             
             # 최종 결과 메시지
-            fb_status = "✅" if results['facebook'] else "❌"
-            ig_status = "✅" if results['instagram'] else "❌"
+            result_lines = []
+            if 'facebook' in platforms:
+                fb_status = "✅" if results['facebook'] else "❌"
+                result_lines.append(f"페이스북: {fb_status}")
+            if 'instagram' in platforms:
+                ig_status = "✅" if results['instagram'] else "❌"
+                result_lines.append(f"인스타그램: {ig_status}")
             
             await bot.send_message(
                 chat_id=self.chat_id,
-                text=f"🎉 게시 완료!\n\n"
-                     f"페이스북: {fb_status}\n"
-                     f"인스타그램: {ig_status}"
+                text=f"🎉 게시 완료!\n\n" + "\n".join(result_lines)
             )
             
             # 상태 업데이트
@@ -537,8 +576,8 @@ class TelegramHandlers:
             
             logger.info(f"SNS posting completed [batch_id: {batch_id}]: {results}")
             
-            # 모두 성공하면 폴더 내용물 삭제
-            if results['facebook'] and results['instagram']:
+            # 성공한 게시가 있으면 폴더 정리
+            if success_count > 0:
                 await self._cleanup_folder(folder_path, bot, batch_id)
             
         except Exception as e:
