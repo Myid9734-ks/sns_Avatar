@@ -52,6 +52,9 @@ class SNSAvatarApp:
             self.file_watcher = FileWatcher(on_batch_ready=self._on_batch_ready)
             logger.info("[OK] File watcher initialized")
             
+            # FileWatcher 참조를 handlers에 전달 (감시 재개용)
+            self.telegram_bot.handlers.set_file_watcher(self.file_watcher)
+            
             logger.info("=" * 60)
             logger.info("Application initialized successfully")
             logger.info("=" * 60)
@@ -94,6 +97,10 @@ class SNSAvatarApp:
             if len(self.sent_batches) > 10:
                 self.sent_batches = set(list(self.sent_batches)[-10:])
             logger.info(f"[CALLBACK] New batch registered, will send notification")
+        
+        # 파일 감시 일시정지 (배치 처리 중 새 파일 감지 방지)
+        if self.file_watcher:
+            self.file_watcher.pause()
         
         # 메인 이벤트 루프에 작업 스케줄링
         if self.loop and self.loop.is_running():

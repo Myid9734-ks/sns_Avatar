@@ -33,11 +33,25 @@ class FileWatcher:
         self.pending_files: List[str] = []
         self.last_change_time: float = 0
         self.batch_wait_time = config.BATCH_WAIT_TIME
-        self.poll_interval = 2.0  # 2초마다 스캔
+        self.poll_interval = 1.0  # 1초마다 스캔 (더 빠른 감지)
         self.running = False
+        self.paused = False  # 배치 처리 중 일시정지
         self.poll_thread: Thread | None = None
         self.lock = Lock()
         logger.info(f"FileWatcher initialized for: {self.watch_folder}")
+    
+    def pause(self):
+        """감시 일시정지 (배치 처리 중)"""
+        self.paused = True
+        logger.info("File watcher paused")
+    
+    def resume(self):
+        """감시 재개"""
+        self.paused = False
+        # known_files 초기화 (재스캔 시 모든 파일 다시 감지)
+        self.known_files.clear()
+        self.pending_files.clear()
+        logger.info("File watcher resumed")
     
     def start(self):
         """파일 감시 시작 (폴링 방식)"""
@@ -75,8 +89,10 @@ class FileWatcher:
         """폴링 루프 (별도 스레드에서 실행)"""
         while self.running:
             try:
-                self._scan_folder()
-                self._check_batch_timeout()
+                # 일시정지 상태면 스캔하지 않음
+                if not self.paused:
+                    self._scan_folder()
+                    self._check_batch_timeout()
                 time.sleep(self.poll_interval)
             except Exception as e:
                 logger.error(f"Error in poll loop: {e}", exc_info=True)

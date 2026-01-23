@@ -41,7 +41,7 @@ class Config:
         self.AI_PROVIDER = os.getenv('AI_PROVIDER', 'openai')  # 'openai' or 'gemini'
         
         # 배치 설정
-        self.BATCH_WAIT_TIME = int(os.getenv('BATCH_WAIT_TIME', 10))
+        self.BATCH_WAIT_TIME = int(os.getenv('BATCH_WAIT_TIME', 15))
         self.MAX_BATCH_SIZE = int(os.getenv('MAX_BATCH_SIZE', 10))
         
         # 파일 안정성 설정

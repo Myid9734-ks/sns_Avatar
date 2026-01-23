@@ -16,41 +16,60 @@ from shared.validators import validate_file_path
 logger = setup_logger(__name__)
 
 
-def validate_file_stability(file_path: str, timeout: int = FILE_STABILITY_TIMEOUT) -> bool:
+def validate_file_stability(file_path: str, timeout: int = FILE_STABILITY_TIMEOUT, max_retries: int = 5) -> bool:
     """
-    파일이 안정적인지 확인 (복사 완료 대기)
+    파일이 안정적인지 확인 (복사 완료 대기) - 재시도 로직 포함
     
     Args:
         file_path: 확인할 파일 경로
         timeout: 최대 대기 시간 (초)
+        max_retries: 최대 재시도 횟수
         
     Returns:
         bool: 파일이 안정적이면 True
     """
-    try:
-        previous_size = -1
-        start_time = time.time()
-        
-        while time.time() - start_time < timeout:
-            if not os.path.exists(file_path):
-                logger.warning(f"File disappeared during stability check: {file_path}")
-                return False
-                
-            current_size = os.path.getsize(file_path)
+    for retry in range(max_retries):
+        try:
+            previous_size = -1
+            stable_count = 0  # 연속으로 안정적인 횟수
+            start_time = time.time()
             
-            if current_size == previous_size and current_size > 0:
-                logger.debug(f"File is stable: {Path(file_path).name}")
-                return True
+            while time.time() - start_time < timeout:
+                if not os.path.exists(file_path):
+                    logger.warning(f"File disappeared during stability check: {file_path}")
+                    break
+                    
+                current_size = os.path.getsize(file_path)
                 
-            previous_size = current_size
-            time.sleep(FILE_STABILITY_CHECK_INTERVAL)
+                if current_size == previous_size and current_size > 0:
+                    stable_count += 1
+                    # 연속 3회 동일하면 안정적으로 판단
+                    if stable_count >= 3:
+                        logger.debug(f"File is stable: {Path(file_path).name}")
+                        return True
+                else:
+                    stable_count = 0
+                    
+                previous_size = current_size
+                time.sleep(FILE_STABILITY_CHECK_INTERVAL)
+            
+            # 타임아웃되었지만 파일 크기가 있으면 True
+            if os.path.exists(file_path):
+                current_size = os.path.getsize(file_path)
+                if current_size > 0:
+                    logger.info(f"File stability timeout but valid: {Path(file_path).name} ({current_size} bytes)")
+                    return True
+                    
+        except Exception as e:
+            logger.error(f"Error checking file stability (retry {retry + 1}/{max_retries}): {e}")
         
-        logger.warning(f"File stability timeout: {Path(file_path).name}")
-        return current_size > 0  # 타임아웃되었지만 파일 크기가 있으면 True
-        
-    except Exception as e:
-        logger.error(f"Error checking file stability: {e}")
-        return False
+        # 재시도 전 대기
+        if retry < max_retries - 1:
+            logger.info(f"Retrying stability check for {Path(file_path).name} ({retry + 2}/{max_retries})")
+            time.sleep(1)
+    
+    logger.warning(f"File stability check failed after {max_retries} retries: {Path(file_path).name}")
+    return False
 
 
 def is_image_file(file_path: str) -> bool:

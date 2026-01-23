@@ -23,8 +23,14 @@ class TelegramHandlers:
         self.batch_lock = Lock()  # 배치 생성 동기화
         self.content_generator = None  # 지연 초기화
         self.bot_instance = None  # 봇 인스턴스 저장
+        self.file_watcher = None  # FileWatcher 참조 (감시 재개용)
         self.chat_id = config.TELEGRAM_CHAT_ID
         logger.info("TelegramHandlers initialized")
+    
+    def set_file_watcher(self, file_watcher):
+        """FileWatcher 참조 설정"""
+        self.file_watcher = file_watcher
+        logger.info("FileWatcher reference set in handlers")
     
     def _get_content_generator(self):
         """ContentGenerator 지연 초기화"""
@@ -106,14 +112,20 @@ class TelegramHandlers:
             # 버튼 생성
             keyboard = [
                 [InlineKeyboardButton("✍️ 정보 추가하기", callback_data=f"{batch_id}:add_context")],
-                [InlineKeyboardButton("🤖 이미지로만 생성", callback_data=f"{batch_id}:no_context")]
+                [InlineKeyboardButton("🤖 이미지로만 생성", callback_data=f"{batch_id}:no_context")],
+                [
+                    InlineKeyboardButton("🔄 재스캔", callback_data=f"{batch_id}:rescan"),
+                    InlineKeyboardButton("🚫 중단", callback_data=f"{batch_id}:cancel")
+                ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # 메시지 전송 (버튼 포함)
             await bot.send_message(
                 chat_id=chat_id,
-                text=f"🔔 새 이미지 {file_count}개가 감지되었습니다.\n\n게시글을 생성할까요?",
+                text=f"🔔 새 이미지 {file_count}개가 감지되었습니다.\n\n"
+                     f"이미지 개수가 맞지 않으면 '재스캔'을 눌러주세요.\n"
+                     f"게시글을 생성할까요?",
                 reply_markup=reply_markup
             )
             
@@ -215,6 +227,31 @@ class TelegramHandlers:
                 )
                 logger.info(f"Posting to Instagram only [batch_id: {batch_id}]")
                 await self._post_to_sns(batch_id, context.bot, platforms=['instagram'])
+            
+            elif action == "rescan":
+                # 폴더 재스캔
+                await query.edit_message_text(
+                    "🔄 폴더를 다시 스캔 중입니다...\n\n"
+                    "잠시만 기다려주세요 ⏳"
+                )
+                logger.info(f"Rescanning folder [batch_id: {batch_id}]")
+                
+                # 기존 배치 정리
+                self.clear_batch(batch_id)
+                
+                # 폴더 재스캔
+                await self._rescan_folder(context.bot)
+            
+            elif action == "cancel":
+                # 중단 및 폴더 정리
+                await query.edit_message_text(
+                    "🚫 작업을 중단하고 폴더를 정리합니다..."
+                )
+                logger.info(f"Cancelling and cleaning up [batch_id: {batch_id}]")
+                
+                # 폴더 정리 (이미지 + JSON 삭제)
+                folder_path = config.WATCH_FOLDER
+                await self._cleanup_folder(folder_path, context.bot, batch_id)
                 
         except Exception as e:
             logger.error(f"Error handling button callback: {e}", exc_info=True)
@@ -405,14 +442,15 @@ class TelegramHandlers:
                 parse_mode='Markdown'
             )
             
-            # 승인/피드백/개별 게시 버튼
+            # 승인/피드백/개별 게시/중단 버튼
             keyboard = [
                 [InlineKeyboardButton("✅ 전체 승인 (FB+IG)", callback_data=f"{batch_id}:approve")],
                 [InlineKeyboardButton("✏️ 피드백 제공", callback_data=f"{batch_id}:feedback")],
                 [
                     InlineKeyboardButton("📘 페이스북만", callback_data=f"{batch_id}:facebook_only"),
                     InlineKeyboardButton("📱 인스타만", callback_data=f"{batch_id}:instagram_only")
-                ]
+                ],
+                [InlineKeyboardButton("🚫 중단", callback_data=f"{batch_id}:cancel")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -630,9 +668,126 @@ class TelegramHandlers:
             # 배치 상태 정리
             self.clear_batch(batch_id)
             
+            # 파일 감시 재개
+            if self.file_watcher:
+                self.file_watcher.resume()
+            
         except Exception as e:
             logger.error(f"Failed to cleanup folder: {e}", exc_info=True)
             await bot.send_message(
                 chat_id=self.chat_id,
                 text=f"⚠️ 폴더 정리 중 오류: {str(e)}"
             )
+            # 오류가 발생해도 감시 재개
+            if self.file_watcher:
+                self.file_watcher.resume()
+    
+    async def _rescan_folder(self, bot):
+        """
+        폴더를 다시 스캔하여 이미지 재감지
+        
+        Args:
+            bot: 텔레그램 봇 인스턴스
+        """
+        from pathlib import Path
+        from file_watcher.batch_handler import is_image_file, validate_file_stability
+        
+        try:
+            folder_path = config.WATCH_FOLDER
+            folder = Path(folder_path)
+            
+            if not folder.exists():
+                await bot.send_message(
+                    chat_id=self.chat_id,
+                    text="❌ 감시 폴더를 찾을 수 없습니다."
+                )
+                return
+            
+            # 이미지 파일 수집
+            image_files = []
+            for file_path in folder.iterdir():
+                if file_path.is_file() and is_image_file(str(file_path)):
+                    abs_path = str(file_path.absolute())
+                    # 안정성 검사
+                    if validate_file_stability(abs_path):
+                        image_files.append(abs_path)
+            
+            if not image_files:
+                await bot.send_message(
+                    chat_id=self.chat_id,
+                    text="📂 폴더에 이미지가 없습니다.\n\n새 이미지를 기다리는 중..."
+                )
+                # 파일이 없으면 감시 재개
+                if self.file_watcher:
+                    self.file_watcher.resume()
+                return
+            
+            # 정렬
+            image_files = sorted(image_files)
+            logger.info(f"Rescan found {len(image_files)} image(s)")
+            
+            # 모든 파일을 임시 이름으로 변경 후 순차적으로 재정렬
+            renamed_files = self._rename_files_sequentially(image_files)
+            logger.info(f"Rescan renamed {len(renamed_files)} file(s)")
+            
+            # 새 컨텍스트 요청 전송
+            await self.send_context_request(bot, self.chat_id, renamed_files)
+            
+        except Exception as e:
+            logger.error(f"Failed to rescan folder: {e}", exc_info=True)
+            await bot.send_message(
+                chat_id=self.chat_id,
+                text=f"❌ 폴더 재스캔 중 오류: {str(e)}"
+            )
+    
+    def _rename_files_sequentially(self, file_paths: List[str]) -> List[str]:
+        """
+        파일들을 no1, no2, no3... 순서로 재정렬
+        기존 파일명과 충돌 방지를 위해 임시 이름으로 먼저 변경
+        
+        Args:
+            file_paths: 원본 파일 경로 리스트 (정렬된 상태)
+            
+        Returns:
+            List[str]: 변경된 파일 경로 리스트
+        """
+        import os
+        import uuid
+        from pathlib import Path
+        
+        if not file_paths:
+            return []
+        
+        # 1단계: 모든 파일을 임시 이름으로 변경
+        temp_files = []
+        for file_path in file_paths:
+            try:
+                path = Path(file_path)
+                ext = path.suffix
+                temp_name = f"_temp_{uuid.uuid4().hex[:8]}{ext}"
+                temp_path = path.parent / temp_name
+                
+                os.rename(file_path, temp_path)
+                temp_files.append(str(temp_path))
+                logger.debug(f"Temp rename: {path.name} -> {temp_name}")
+            except Exception as e:
+                logger.error(f"Failed to temp rename {file_path}: {e}")
+                temp_files.append(file_path)  # 실패 시 원본 유지
+        
+        # 2단계: 임시 파일들을 no1, no2, no3... 순서로 변경
+        renamed_files = []
+        for idx, temp_path in enumerate(temp_files, start=1):
+            try:
+                path = Path(temp_path)
+                ext = path.suffix
+                new_name = f"no{idx}{ext}"
+                new_path = path.parent / new_name
+                
+                os.rename(temp_path, new_path)
+                renamed_files.append(str(new_path))
+                logger.info(f"Renamed: {path.name} -> {new_name}")
+            except Exception as e:
+                logger.error(f"Failed to rename {temp_path}: {e}")
+                renamed_files.append(temp_path)  # 실패 시 임시 이름 유지
+        
+        return renamed_files

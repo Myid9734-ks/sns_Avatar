@@ -94,19 +94,31 @@ class OpenAIClient:
             return base64.b64encode(image_file.read()).decode("utf-8")
     
     def _build_prompt(self, image_count: int, user_context: str = None) -> str:
-        """프롬프트 생성"""
-        context_text = user_context if user_context else "없음"
+        """프롬프트 생성 - 사용자 정보 유무에 따라 다른 프롬프트"""
+        
+        # 사용자 정보가 있으면 강하게 반영 지시
+        if user_context:
+            context_section = f"""[⚠️ 필수 반영 사항]
+사용자가 제공한 정보를 반드시 글의 핵심 내용으로 반영하세요:
+"{user_context}"
+- 이 정보가 글의 주제와 분위기를 결정합니다
+- 이미지 분석보다 사용자 정보를 우선시하세요"""
+        else:
+            context_section = """[참고]
+- 사용자가 추가 정보를 제공하지 않았습니다
+- 이미지만 분석하여 자연스러운 글을 작성하세요"""
         
         prompt = f"""이 사진(들)을 보고 내가 직접 쓴 것 같은 자연스러운 SNS 게시글을 작성해줘.
 
+[기본 정보]
+- 사진 수: {image_count}장
+
+{context_section}
+
 [중요 지침]
 - 절대로 "첫 번째 사진", "두 번째 사진" 같은 사진 설명/분석 금지
-- 사진을 찍은 본인 입장에서 경험과 감정을 담아 작성
+- 사진을 찍은/만든 본인 입장에서 경험과 감정을 담아 작성
 - 마치 친구에게 이야기하듯 자연스럽게
-
-[참고 정보]
-- 사진 수: {image_count}장
-- 추가 정보: {context_text}
 
 [인스타그램 버전]
 - 짧고 감성적인 캡션 (2-3줄)

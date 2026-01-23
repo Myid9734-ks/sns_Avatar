@@ -13,11 +13,11 @@ SUPPORTED_IMAGE_EXTENSIONS = {
 FILE_NAME_PREFIX = "no"
 
 # 배치 처리
-DEFAULT_BATCH_WAIT_TIME = 10  # 초
+DEFAULT_BATCH_WAIT_TIME = 15  # 초 (파일 간 여유 시간)
 DEFAULT_MAX_BATCH_SIZE = 10
 
-# 파일 안정성
-FILE_STABILITY_TIMEOUT = 5  # 초
+# 파일 안정성 (네트워크 드라이브 고려)
+FILE_STABILITY_TIMEOUT = 20  # 초 (네트워크 드라이브 지연 대비)
 FILE_STABILITY_CHECK_INTERVAL = 0.5  # 초
 
 # 캐시
