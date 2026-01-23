@@ -1,0 +1,16 @@
+# SNS Avatar - 필수 패키지
+
+# 환경변수 관리
+python-dotenv>=1.0.0
+
+# 텔레그램 봇
+python-telegram-bot>=21.0
+
+# AI - OpenAI
+openai>=1.50.0
+
+# AI - Google Gemini (선택)
+google-genai>=1.0.0
+
+# RPA - 브라우저 자동화
+playwright>=1.40.0
