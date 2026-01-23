@@ -14,3 +14,6 @@ google-genai>=1.0.0
 
 # RPA - 브라우저 자동화
 playwright>=1.40.0
+
+# 이미지 처리
+Pillow>=10.0.0

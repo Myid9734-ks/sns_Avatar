@@ -6,6 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from shared.logger import setup_logger
 from shared.config import config
+from shared.utils import resize_images
 
 logger = setup_logger(__name__)
 
@@ -49,6 +50,14 @@ class TelegramHandlers:
         Returns:
             str: 배치 ID
         """
+        # 이미지 리사이징 (1080px로 최적화)
+        logger.info(f"Resizing {len(file_paths)} image(s) for optimization...")
+        file_paths = resize_images(file_paths)
+        
+        if not file_paths:
+            logger.error("No valid images after resizing")
+            raise ValueError("No valid images to process")
+        
         # Lock으로 batch_id 생성 및 체크 보호
         with self.batch_lock:
             # 파일 경로를 기반으로 고유한 batch_id 생성 (중복 방지)

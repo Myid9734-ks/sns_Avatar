@@ -2,10 +2,15 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, List
+from PIL import Image
 from shared.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# 이미지 리사이징 설정
+MAX_IMAGE_WIDTH = 1080
+MAX_IMAGE_HEIGHT = 1350  # 인스타그램 세로 비율 최대
 
 
 def calculate_file_hash(file_path: str) -> str:
@@ -109,3 +114,64 @@ def get_file_size(file_path: str) -> int:
     except Exception as e:
         logger.error(f"Failed to get file size for {file_path}: {e}")
         return -1
+
+
+def resize_image(image_path: str, max_width: int = MAX_IMAGE_WIDTH, max_height: int = MAX_IMAGE_HEIGHT) -> bool:
+    """
+    이미지 리사이징 (원본 덮어쓰기)
+    
+    Args:
+        image_path: 이미지 파일 경로
+        max_width: 최대 너비 (기본 1080)
+        max_height: 최대 높이 (기본 1350)
+        
+    Returns:
+        bool: 성공 여부
+    """
+    try:
+        with Image.open(image_path) as img:
+            original_size = img.size
+            
+            # 이미 작으면 스킵
+            if img.width <= max_width and img.height <= max_height:
+                logger.debug(f"Image already small enough: {image_path} ({img.width}x{img.height})")
+                return True
+            
+            # 비율 유지하면서 리사이즈
+            img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+            
+            # 원본 형식 유지하면서 저장
+            img_format = img.format or 'JPEG'
+            if img_format == 'JPEG':
+                img.save(image_path, format=img_format, quality=90, optimize=True)
+            else:
+                img.save(image_path, format=img_format, optimize=True)
+            
+            logger.info(f"Image resized: {Path(image_path).name} ({original_size[0]}x{original_size[1]} -> {img.width}x{img.height})")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Failed to resize image {image_path}: {e}")
+        return False
+
+
+def resize_images(image_paths: List[str]) -> List[str]:
+    """
+    여러 이미지 리사이징
+    
+    Args:
+        image_paths: 이미지 파일 경로 리스트
+        
+    Returns:
+        List[str]: 리사이징된 이미지 경로 리스트 (실패한 것 제외)
+    """
+    resized_paths = []
+    
+    for path in image_paths:
+        if resize_image(path):
+            resized_paths.append(path)
+        else:
+            logger.warning(f"Skipping failed resize: {path}")
+    
+    logger.info(f"Resized {len(resized_paths)}/{len(image_paths)} images")
+    return resized_paths
