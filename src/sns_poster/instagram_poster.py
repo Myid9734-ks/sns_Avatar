@@ -325,9 +325,18 @@ class InstagramPoster(BasePoster):
             shared = False
             for selector in share_btn_selectors:
                 try:
-                    share_btn = await self.page.query_selector(selector)
-                    if share_btn:
-                        await share_btn.click()
+                    # 모든 매칭 버튼 찾기
+                    share_btns = await self.page.query_selector_all(selector)
+                    # visible한 버튼들만 필터링
+                    visible_btns = []
+                    for btn in share_btns:
+                        if await btn.is_visible():
+                            visible_btns.append(btn)
+                    
+                    if visible_btns:
+                        # 마지막 visible 버튼 클릭
+                        share_btn = visible_btns[-1]
+                        await self.page.evaluate('el => el.click()', share_btn)
                         shared = True
                         logger.info("[instagram] Share button clicked")
                         break
@@ -371,9 +380,19 @@ class InstagramPoster(BasePoster):
         
         for selector in next_btn_selectors:
             try:
-                next_btn = await self.page.query_selector(selector)
-                if next_btn:
-                    await next_btn.click()
+                # 모든 매칭 버튼 찾기
+                next_btns = await self.page.query_selector_all(selector)
+                # visible한 버튼들만 필터링
+                visible_btns = []
+                for btn in next_btns:
+                    if await btn.is_visible():
+                        visible_btns.append(btn)
+                
+                if visible_btns:
+                    # 마지막 visible 버튼 클릭 (모달 안의 버튼)
+                    next_btn = visible_btns[-1]
+                    await self.page.evaluate('el => el.click()', next_btn)
+                    logger.info(f"[instagram] Next button clicked: {selector}")
                     return True
             except:
                 continue

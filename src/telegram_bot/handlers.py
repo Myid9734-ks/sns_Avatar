@@ -528,9 +528,63 @@ class TelegramHandlers:
             
             logger.info(f"SNS posting completed [batch_id: {batch_id}]: {results}")
             
+            # 모두 성공하면 폴더 내용물 삭제
+            if results['facebook'] and results['instagram']:
+                await self._cleanup_folder(folder_path, bot, batch_id)
+            
         except Exception as e:
             logger.error(f"Failed to post to SNS: {e}", exc_info=True)
             await bot.send_message(
                 chat_id=self.chat_id,
                 text=f"❌ SNS 게시 중 오류가 발생했습니다.\n\n{str(e)}"
+            )
+    
+    async def _cleanup_folder(self, folder_path: str, bot, batch_id: str):
+        """
+        게시 완료 후 폴더 내용물 삭제
+        
+        Args:
+            folder_path: 폴더 경로
+            bot: 텔레그램 봇 인스턴스
+            batch_id: 배치 ID
+        """
+        import shutil
+        from pathlib import Path
+        
+        try:
+            folder = Path(folder_path)
+            
+            if not folder.exists():
+                logger.warning(f"Folder not found: {folder_path}")
+                return
+            
+            # 폴더 내 모든 파일 삭제
+            deleted_count = 0
+            for item in folder.iterdir():
+                try:
+                    if item.is_file():
+                        item.unlink()
+                        deleted_count += 1
+                    elif item.is_dir():
+                        shutil.rmtree(item)
+                        deleted_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to delete {item}: {e}")
+            
+            logger.info(f"Folder cleaned up: {deleted_count} items deleted [batch_id: {batch_id}]")
+            
+            await bot.send_message(
+                chat_id=self.chat_id,
+                text=f"🗑️ 폴더 정리 완료! ({deleted_count}개 파일 삭제)\n\n"
+                     f"📂 새 이미지를 기다리는 중..."
+            )
+            
+            # 배치 상태 정리
+            self.clear_batch(batch_id)
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup folder: {e}", exc_info=True)
+            await bot.send_message(
+                chat_id=self.chat_id,
+                text=f"⚠️ 폴더 정리 중 오류: {str(e)}"
             )
