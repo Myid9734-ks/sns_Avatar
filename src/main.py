@@ -3,7 +3,8 @@ SNS Avatar - AI 기반 소셜 미디어 콘텐츠 자동화 시스템
 메인 애플리케이션
 """
 import asyncio
-import signal
+import atexit
+import os
 import sys
 from typing import List
 from shared.logger import setup_logger
@@ -219,8 +220,23 @@ async def main():
         sys.exit(1)
 
 
+PID_FILE = "data/sns_avatar.pid"
+
+
+def _remove_pid_file():
+    try:
+        if os.path.exists(PID_FILE):
+            os.remove(PID_FILE)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
-    # 이벤트 루프 실행
+    os.makedirs("data", exist_ok=True)
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+    atexit.register(_remove_pid_file)
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

@@ -159,7 +159,12 @@ class TelegramHandlers:
             logger.info(f"Button callback: {action} [batch_id: {batch_id}]")
             
             if batch_id not in self.batch_states:
-                await query.edit_message_text("❌ 오류: 배치 정보를 찾을 수 없습니다.")
+                # 이미 처리 완료된 배치인 경우
+                await query.edit_message_text(
+                    "ℹ️ 이 작업은 이미 완료되었거나 취소되었습니다.\n\n"
+                    "새 이미지가 감지되면 다시 알림을 받게 됩니다."
+                )
+                logger.warning(f"Batch not found (already processed): {batch_id}")
                 return
             
             batch_state = self.batch_states[batch_id]

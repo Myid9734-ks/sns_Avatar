@@ -285,10 +285,12 @@ class InstagramPoster(BasePoster):
             logger.info("[instagram] Entering caption...")
             
             caption_selectors = [
+                'div[contenteditable="true"][role="textbox"][data-lexical-editor="true"]',  # Lexical 에디터 우선
+                'div[aria-label="문구를 입력하세요..."][contenteditable="true"]',
+                'div[aria-label="Write a caption..."][contenteditable="true"]',
                 'textarea[aria-label="문구를 입력하세요..."]',
                 'textarea[aria-label="Write a caption..."]',
-                'div[aria-label="문구를 입력하세요..."]',
-                'div[aria-label="Write a caption..."]',
+                'div[contenteditable="true"][role="textbox"]',
                 'textarea[placeholder*="문구"]',
                 'textarea[placeholder*="caption"]',
             ]
@@ -298,17 +300,131 @@ class InstagramPoster(BasePoster):
                 try:
                     caption_area = await self.page.query_selector(selector)
                     if caption_area:
+                        # Lexical 에디터인지 확인
+                        is_lexical = await caption_area.evaluate('el => el.hasAttribute("data-lexical-editor")')
+                        
                         await caption_area.click()
-                        await self.random_delay(0.5, 1)
-                        await self.page.keyboard.type(text, delay=20)
+                        await self.random_delay(0.8, 1.2)  # 클릭 후 충분한 대기
+                        
+                        # 요소 타입 확인
+                        tag_name = await caption_area.evaluate('el => el.tagName.toLowerCase()')
+                        
+                        if tag_name == 'textarea':
+                            # textarea인 경우 fill 사용
+                            await caption_area.fill('')  # 기존 텍스트 지우기
+                            await self.random_delay(0.3, 0.5)
+                            await caption_area.fill(text)
+                            logger.info("[instagram] Caption entered via fill (textarea)")
+                        elif is_lexical:
+                            # Lexical 에디터인 경우 - 실제 키보드 타이핑 사용
+                            logger.info("[instagram] Detected Lexical editor, using keyboard typing...")
+                            
+                            # 기존 내용 선택 및 삭제
+                            await self.page.keyboard.press('Control+A')  # 전체 선택
+                            await self.random_delay(0.2, 0.3)
+                            await self.page.keyboard.press('Delete')  # 삭제
+                            await self.random_delay(0.3, 0.5)
+                            
+                            # 실제 키보드 타이핑으로 텍스트 입력 (Lexical이 인식하도록)
+                            await self.page.keyboard.type(text, delay=30)  # delay를 늘려서 확실하게
+                            logger.info("[instagram] Caption entered via keyboard.type (Lexical)")
+                            
+                            # Lexical 에디터의 내부 상태 업데이트를 위한 추가 이벤트
+                            await caption_area.evaluate('''
+                                el => {
+                                    // input 이벤트
+                                    const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+                                    el.dispatchEvent(inputEvent);
+                                    
+                                    // compositionend 이벤트 (한글 입력 완료 시뮬레이션)
+                                    const compositionEvent = new CompositionEvent('compositionend', { bubbles: true, cancelable: true });
+                                    el.dispatchEvent(compositionEvent);
+                                    
+                                    // beforeinput 이벤트
+                                    const beforeInputEvent = new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText' });
+                                    el.dispatchEvent(beforeInputEvent);
+                                }
+                            ''')
+                            await self.random_delay(0.5, 0.8)
+                        else:
+                            # 일반 contenteditable div인 경우
+                            # innerText 설정 + 이벤트 발생
+                            await caption_area.evaluate(f'''
+                                el => {{
+                                    el.innerText = {repr(text)};
+                                    
+                                    // 여러 이벤트 발생
+                                    const inputEvent = new Event('input', {{ bubbles: true }});
+                                    el.dispatchEvent(inputEvent);
+                                    
+                                    const changeEvent = new Event('change', {{ bubbles: true }});
+                                    el.dispatchEvent(changeEvent);
+                                }}
+                            ''')
+                            logger.info("[instagram] Caption entered via innerText (contenteditable)")
+                            await self.random_delay(0.5, 0.8)
+                        
                         caption_entered = True
-                        logger.info("[instagram] Caption entered")
+                        
+                        # 텍스트가 실제로 입력되었는지 확인
+                        await self.random_delay(1, 1.5)  # 확인 전 충분한 대기
+                        entered_text = await caption_area.evaluate('el => el.innerText || el.textContent || el.value || ""')
+                        
+                        # 텍스트 확인 (처음 50자 비교)
+                        if entered_text and (text[:50].strip() in entered_text[:100] or entered_text[:50].strip() in text[:100]):
+                            logger.info(f"[instagram] Caption verified: {len(entered_text)} chars entered")
+                        else:
+                            logger.warning(f"[instagram] Caption verification failed. Expected: {text[:50]}, Got: {entered_text[:50]}")
+                            # 재시도: 한 번 더 키보드 타이핑
+                            if is_lexical:
+                                logger.info("[instagram] Retrying with keyboard typing...")
+                                await caption_area.click()
+                                await self.random_delay(0.5, 0.8)
+                                await self.page.keyboard.press('Control+A')
+                                await self.random_delay(0.2, 0.3)
+                                await self.page.keyboard.type(text, delay=40)
+                                await self.random_delay(1, 1.5)
+                        
+                        # 포커스를 잃어서 인스타그램이 텍스트를 인식하도록 함
+                        await self.random_delay(0.5, 0.8)
+                        try:
+                            # 에디터 밖을 클릭하거나 Tab으로 포커스 이동
+                            await self.page.keyboard.press('Tab')
+                            await self.random_delay(0.3, 0.5)
+                        except:
+                            pass
+                        
                         break
-                except:
+                except Exception as e:
+                    logger.debug(f"[instagram] Failed to enter caption with {selector}: {e}")
                     continue
             
             if not caption_entered:
                 logger.warning("[instagram] Could not enter caption, continuing...")
+            
+            # 텍스트 입력 후 충분한 대기 시간 (인스타그램이 텍스트를 처리할 시간)
+            await self.random_delay(2, 3)
+            
+            # 공유하기 버튼이 활성화될 때까지 대기 (텍스트 입력 완료 확인)
+            logger.info("[instagram] Waiting for share button to be enabled...")
+            try:
+                # 공유하기 버튼이 활성화될 때까지 최대 10초 대기
+                await self.page.wait_for_function(
+                    '''
+                    () => {
+                        const shareBtns = Array.from(document.querySelectorAll('div[role="button"], button'))
+                            .filter(btn => {
+                                const text = btn.innerText || btn.textContent || '';
+                                return text.includes('공유하기') || text.includes('Share');
+                            });
+                        return shareBtns.length > 0 && shareBtns.some(btn => !btn.disabled && btn.offsetParent !== null);
+                    }
+                    ''',
+                    timeout=10000
+                )
+                logger.info("[instagram] Share button is enabled")
+            except:
+                logger.warning("[instagram] Share button check timeout, proceeding anyway...")
             
             await self.random_delay(1, 2)
             

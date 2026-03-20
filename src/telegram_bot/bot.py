@@ -1,7 +1,7 @@
 """텔레그램 봇 메인"""
 from typing import List, Callable
 from telegram import Bot, Update
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from shared.logger import setup_logger
 from shared.config import config
 from shared.exceptions import TelegramError
@@ -32,8 +32,13 @@ class TelegramBot:
                 Application.builder()
                 .token(self.bot_token)
                 .connect_timeout(30)
-                .read_timeout(60)
+                .read_timeout(30)
                 .write_timeout(60)
+                .pool_timeout(10)
+                .get_updates_connect_timeout(30)
+                .get_updates_read_timeout(30)
+                .get_updates_write_timeout(30)
+                .get_updates_pool_timeout(10)
                 .build()
             )
             self.bot = self.application.bot
@@ -69,6 +74,9 @@ class TelegramBot:
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handlers.handle_text_message)
         )
+        
+        # 에러 핸들러 등록 (모든 텔레그램 에러를 로그에 기록)
+        self.application.add_error_handler(self._handle_error)
         
         logger.info("Telegram handlers registered")
     
@@ -149,6 +157,44 @@ class TelegramBot:
             logger.error(f"Failed to send message: {e}")
             raise TelegramError(f"Failed to send message: {e}")
     
+    async def _handle_error(self, update: object, context: ContextTypes.DEFAULT_TYPE):
+        """
+        텔레그램 에러 핸들러 (모든 에러를 로그에 기록)
+        
+        Args:
+            update: 업데이트 객체 (없을 수 있음)
+            context: 컨텍스트 객체
+        """
+        import traceback
+        
+        error = context.error
+        error_type = type(error).__name__
+        error_message = str(error)
+        
+        # 상세한 에러 정보 로깅
+        logger.error(
+            f"Telegram error occurred: {error_type} - {error_message}",
+            exc_info=True
+        )
+        
+        # Conflict 에러는 특별히 처리
+        if "Conflict" in error_type or "terminated by other getUpdates" in error_message:
+            logger.error(
+                "⚠️ 텔레그램 Conflict 에러 발생: "
+                "다른 봇 인스턴스가 실행 중일 수 있습니다. "
+                "기존 프로세스를 종료하고 다시 시작하세요."
+            )
+        
+        # 사용자에게 에러 알림 (가능한 경우)
+        if update and hasattr(update, 'effective_chat'):
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"❌ 오류가 발생했습니다: {error_type}\n\n{error_message}"
+                )
+            except:
+                pass  # 알림 실패해도 무시
+    
     async def start_polling(self):
         """Polling 시작"""
         try:
@@ -156,11 +202,13 @@ class TelegramBot:
             await self.application.start()
             await self.application.updater.start_polling(
                 allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True
+                drop_pending_updates=True,
+                poll_interval=1.0,
+                error_callback=lambda exc: logger.warning(f"Polling error (auto-retry): {exc}")
             )
             logger.info("Telegram bot polling started")
         except Exception as e:
-            logger.error(f"Failed to start polling: {e}")
+            logger.error(f"Failed to start polling: {e}", exc_info=True)
             raise TelegramError(f"Failed to start polling: {e}")
     
     async def shutdown(self):
